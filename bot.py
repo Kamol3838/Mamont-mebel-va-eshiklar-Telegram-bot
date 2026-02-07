@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import os
 from datetime import datetime
-from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from dotenv import load_dotenv
-
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -14,7 +12,6 @@ from telegram import (
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
     KeyboardButton,
-    InputFile,
 )
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -27,16 +24,13 @@ from telegram.ext import (
     filters,
 )
 
-# ================== ENV ==================
+# ================= ENV =================
 load_dotenv()
 
 TOKEN = os.getenv("TOKEN", "").strip()
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").strip()
 
-ADMIN_CHAT_IDS_RAW = os.getenv("ADMIN_CHAT_IDS", "").strip()  # masalan: "1469..., -1003..."
-# Eski .env larda "ADMIN_ID" deb yozilgan bo‘lishi mumkin — fallback:
-if not ADMIN_CHAT_IDS_RAW:
-    ADMIN_CHAT_IDS_RAW = os.getenv("ADMIN_ID", "").strip()
+BRAND_TITLE = "🏠 Mamont mebel va eshiklar"
 
 
 def parse_chat_ids(raw: str) -> List[int]:
@@ -52,29 +46,25 @@ def parse_chat_ids(raw: str) -> List[int]:
     return ids
 
 
-ADMIN_CHAT_IDS: List[int] = parse_chat_ids(ADMIN_CHAT_IDS_RAW)
+ADMIN_CHAT_IDS_RAW = os.getenv("ADMIN_CHAT_IDS", "").strip()
+if not ADMIN_CHAT_IDS_RAW:
+    # eski nom bilan yozib qo'ygan bo'lishi mumkin
+    ADMIN_CHAT_IDS_RAW = os.getenv("ADMIN_ID", "").strip()
 
-BRAND_TITLE = "🏠 Mamont mebel va eshiklar"
+ADMIN_CHAT_IDS = parse_chat_ids(ADMIN_CHAT_IDS_RAW)
 
-PHONES = ["+998946103838", "+998906144440"]
-TG_USERNAME = "@bazizbuxara"
-IG_USERNAME = "@jumayev1992"
-
-BASE_DIR = Path(__file__).resolve().parent
-IMAGES_DIR = BASE_DIR / "images"
-
-PORTFOLIO = {
-    "oshxona": ["oshxona1.jpg", "oshxona2.jpg", "oshxona3.jpg"],
-    "holl": ["holl1.jpg", "holl2.jpg", "holl3.jpg"],
-    "bolalar": ["bolalar1.jpg", "bolalar2.jpg", "bolalar3.jpg"],
-    "shkaf": ["shkaf1.jpg", "shkaf2.jpg", "shkaf3.jpg"],
-    "ofis": ["ofis1.jpg", "ofis2.jpg", "ofis3.jpg"],
-}
-
-
-# ================== YORDAMCHI ==================
+# ================= HELPERS =================
 def now_str() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+async def send_to_admins(bot_app: Application, text: str) -> None:
+    for chat_id in ADMIN_CHAT_IDS:
+        try:
+            await bot_app.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
+        except Exception:
+            # xatoni yutib yuboramiz, bot yiqilmasin
+            pass
 
 
 def main_menu_kb() -> InlineKeyboardMarkup:
@@ -83,156 +73,83 @@ def main_menu_kb() -> InlineKeyboardMarkup:
             [InlineKeyboardButton("🪑 Mebel xizmati", callback_data="svc:mebel")],
             [InlineKeyboardButton("🚪 Eshiklar xizmati", callback_data="svc:eshik")],
             [InlineKeyboardButton("🎨 Bo‘yash xizmati", callback_data="svc:boyash")],
-            [InlineKeyboardButton("💻 Konstruktlash xizmati", callback_data="svc:konstruktor")],
-            [InlineKeyboardButton("🧑‍🔧 Ustalar xizmati", callback_data="svc:ustalar")],
+            [InlineKeyboardButton("🖥️ Konstruktlash xizmati", callback_data="svc:konstruktor")],
+            [InlineKeyboardButton("👷 Ustalar xizmati", callback_data="svc:ustalar")],
             [
-                InlineKeyboardButton("📞 Aloqa", callback_data="contact"),
+                InlineKeyboardButton("☎️ Aloqa", callback_data="contact"),
                 InlineKeyboardButton("⭐ Fikrlar", callback_data="reviews"),
             ],
         ]
     )
 
 
-def mebel_menu_kb() -> InlineKeyboardMarkup:
+def service_actions_kb(svc_key: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("🍽 Oshxona", callback_data="mebel:oshxona")],
-            [InlineKeyboardButton("🪑 Holl", callback_data="mebel:holl")],
-            [InlineKeyboardButton("🧸 Bolalar yotoqxonasi", callback_data="mebel:bolalar")],
-            [InlineKeyboardButton("🚪 Shkaf-kupe", callback_data="mebel:shkaf")],
-            [InlineKeyboardButton("🏢 Ofis mebellari", callback_data="mebel:ofis")],
+            [InlineKeyboardButton("💰 Narx so‘rash", callback_data=f"price:{svc_key}")],
             [InlineKeyboardButton("⬅️ Orqaga", callback_data="back:main")],
         ]
     )
 
 
-def section_actions_kb(section_key: str, back_to: str) -> InlineKeyboardMarkup:
-    # section_key: "mebel/oshxona" yoki "svc/eshik"
+def materials_kb(svc_key: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("🧾 Narx so‘rash", callback_data=f"ask:{section_key}"),
-                InlineKeyboardButton("🖼 Ish namunalari", callback_data=f"pf:{section_key}"),
+                InlineKeyboardButton("📦 MDF", callback_data=f"mat:{svc_key}:MDF"),
+                InlineKeyboardButton("📦 LMDF", callback_data=f"mat:{svc_key}:LMDF"),
             ],
             [
-                InlineKeyboardButton("📞 Aloqa", callback_data="contact"),
-                InlineKeyboardButton("⭐ Fikrlar", callback_data="reviews"),
+                InlineKeyboardButton("📦 Akril", callback_data=f"mat:{svc_key}:Akril"),
+                InlineKeyboardButton("🎨 Kraska", callback_data=f"mat:{svc_key}:Kraska"),
             ],
-            [InlineKeyboardButton("⬅️ Orqaga", callback_data=back_to)],
+            [InlineKeyboardButton("✍️ O‘zim yozaman", callback_data=f"mat:{svc_key}:OTHER")],
+            [InlineKeyboardButton("⬅️ Orqaga", callback_data=f"svc:{svc_key}")],
         ]
     )
 
 
-async def send_to_admins(app: Application, text: str) -> None:
-    if not ADMIN_CHAT_IDS:
-        return
-    for chat_id in ADMIN_CHAT_IDS:
-        try:
-            await app.bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
-        except Exception:
-            pass
-
-
-async def send_portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE, key: str) -> None:
-    files = PORTFOLIO.get(key, [])
-    sent_any = False
-
-    for fn in files:
-        path = IMAGES_DIR / fn
-        if path.exists() and path.is_file():
-            sent_any = True
-            await update.effective_chat.send_photo(photo=InputFile(path))
-
-    if not sent_any:
-        await update.effective_chat.send_message(
-            "⚠️ Hozircha bu bo‘limga rasmlar qo‘shilmagan.\n"
-            "✅ images/ papkaga rasmlarni qo‘ying va PORTFOLIO ro‘yxatini moslang.",
-            parse_mode=ParseMode.MARKDOWN,
-        )
-
-
-# ================== HANDLERS ==================
-async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # /start bosilganda menyu chiqadi
-    await update.message.reply_text(
-        f"{BRAND_TITLE}\n\nXizmat turini tanlang 👇",
-        reply_markup=main_menu_kb(),
-        parse_mode=ParseMode.MARKDOWN,
+def phone_request_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        [[KeyboardButton("☎️ Telefon raqamni yuborish", request_contact=True)]],
+        resize_keyboard=True,
+        one_time_keyboard=True,
     )
 
 
-async def on_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Telegram contact yuborganda adminlarga jo‘natish
-    if not update.message or not update.message.contact:
-        return
-
-    c = update.message.contact
-    user = update.effective_user
-
-    msg = (
-        "📞 *Mijoz telefon ulashdi*\n\n"
-        f"👤 *Mijoz:* {user.full_name}\n"
-        f"🆔 *User ID:* {user.id}\n"
-        f"📱 *Telefon:* {c.phone_number}\n"
-        f"🕒 *Vaqt:* {now_str()}"
-    )
-
-    await send_to_admins(context.application, msg)
-
-    await update.message.reply_text("✅ Rahmat! Telefon raqamingiz qabul qilindi.", reply_markup=ReplyKeyboardRemove())
+def svc_title(svc_key: str) -> str:
+    titles = {
+        "mebel": "🪑 Mebel xizmati",
+        "eshik": "🚪 Eshiklar xizmati",
+        "boyash": "🎨 Bo‘yash xizmati",
+        "konstruktor": "🖥️ Konstruktlash xizmati",
+        "ustalar": "👷 Ustalar xizmati",
+    }
+    return titles.get(svc_key, "Xizmat")
 
 
-async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    waiting = context.user_data.get("waiting")
-    if not waiting:
-        return
+def clear_flow(context: ContextTypes.DEFAULT_TYPE) -> None:
+    context.user_data.pop("flow", None)
+    context.user_data.pop("svc_key", None)
+    context.user_data.pop("material", None)
+    context.user_data.pop("room_size", None)
+    context.user_data.pop("address", None)
+    context.user_data.pop("phone", None)
 
-    text = (update.message.text or "").strip()
-    if not text:
-        return
 
-    user = update.effective_user
-
-    if waiting == "review":
-        msg = (
-            "⭐ *Yangi fikr*\n\n"
-            f"👤 *Kimdan:* {user.full_name}\n"
-            f"🆔 *User ID:* {user.id}\n"
-            f"🕒 *Vaqt:* {now_str()}\n\n"
-            f"💬 *Fikr:*\n{text}"
-        )
-        await send_to_admins(context.application, msg)
-        await update.message.reply_text("✅ Fikringiz uchun rahmat! 🙏", reply_markup=ReplyKeyboardRemove())
-        context.user_data.pop("waiting", None)
-        return
-
-    if waiting == "order":
-        section_title = context.user_data.get("order_section_title", "Noma’lum bo‘lim")
-        section_key = context.user_data.get("order_section_key", "unknown")
-
-        msg = (
-            "📦 *Yangi buyurtma / so‘rov*\n\n"
-            f"🧩 *Bo‘lim:* {section_title}\n"
-            f"🔑 *Key:* {section_key}\n"
-            f"👤 *Mijoz:* {user.full_name}\n"
-            f"🆔 *User ID:* {user.id}\n"
-            f"🕒 *Vaqt:* {now_str()}\n\n"
-            f"📝 *Xabar:*\n{text}"
-        )
-        await send_to_admins(context.application, msg)
-
+# ================= COMMANDS =================
+async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    clear_flow(context)
+    if update.message:
         await update.message.reply_text(
-            "✅ So‘rovingiz qabul qilindi!\nTez orada siz bilan bog‘lanamiz.",
-            reply_markup=ReplyKeyboardRemove(),
+            f"*{BRAND_TITLE}*\n\nXizmat turini tanlang 👇",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=main_menu_kb(),
         )
 
-        context.user_data.pop("waiting", None)
-        context.user_data.pop("order_section_title", None)
-        context.user_data.pop("order_section_key", None)
-        return
 
-
-async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ================= CALLBACKS =================
+async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
     if not q:
         return
@@ -240,176 +157,198 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     data = q.data or ""
 
-    # --- ORQAGA ---
+    # ---- BACK ----
     if data == "back:main":
-        context.user_data.pop("waiting", None)
+        clear_flow(context)
         await q.message.edit_text(
-            f"{BRAND_TITLE}\n\nXizmat turini tanlang 👇",
+            f"*{BRAND_TITLE}*\n\nXizmat turini tanlang 👇",
+            parse_mode=ParseMode.MARKDOWN,
             reply_markup=main_menu_kb(),
-            parse_mode=ParseMode.MARKDOWN,
         )
         return
 
-    if data == "back:mebel":
-        await q.message.edit_text(
-            "🪑 *Mebel xizmati*\n\nKerakli bo‘limni tanlang 👇",
-            reply_markup=mebel_menu_kb(),
-            parse_mode=ParseMode.MARKDOWN,
+    # ---- REVIEWS ----
+    if data == "reviews":
+        await q.message.reply_text("⭐ Fikr-mulohazangizni 1 ta xabar qilib yozib yuboring:")
+        context.user_data["flow"] = "review_text"
+        return
+
+    # ---- CONTACT (telefonni 1 bosishda) ----
+    if data == "contact":
+        context.user_data["flow"] = "contact_phone"
+        await q.message.reply_text(
+            "☎️ Biz bilan bog‘lanish uchun telefon raqamingizni yuboring 👇",
+            reply_markup=phone_request_kb(),
         )
         return
 
-    # --- XIZMATLAR ---
+    # ---- SERVICE ----
     if data.startswith("svc:"):
-        svc = data.split(":", 1)[1]
-        titles = {
-            "konstruktor": "💻 *Konstruktlash xizmati*",
-            "boyash": "🎨 *Bo‘yash xizmati*",
-            "eshik": "🚪 *Eshiklar xizmati*",
-            "ustalar": "🧑‍🔧 *Ustalar xizmati*",
-        }
-        if svc == "mebel":
-            await q.message.edit_text(
-                "🪑 *Mebel xizmati*\n\nKerakli bo‘limni tanlang 👇",
-                reply_markup=mebel_menu_kb(),
-                parse_mode=ParseMode.MARKDOWN,
-            )
+        svc_key = data.split(":", 1)[1]
+        title = svc_title(svc_key)
+        await q.message.edit_text(
+            f"{title}\n\nKerakli bo‘limni tanlang 👇",
+            reply_markup=service_actions_kb(svc_key),
+        )
+        return
+
+    # ---- START PRICE FLOW ----
+    if data.startswith("price:"):
+        svc_key = data.split(":", 1)[1]
+        context.user_data["flow"] = "price_material"
+        context.user_data["svc_key"] = svc_key
+        await q.message.reply_text(
+            f"💰 *Narx so‘rash* — {svc_title(svc_key)}\n\n📦 Materialni tanlang 👇",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=materials_kb(svc_key),
+        )
+        return
+
+    # ---- MATERIAL CHOSEN ----
+    if data.startswith("mat:"):
+        # mat:{svc_key}:{MDF/LMDF/Akril/Kraska/OTHER}
+        _, svc_key, mat = data.split(":", 2)
+        context.user_data["svc_key"] = svc_key
+
+        if mat == "OTHER":
+            context.user_data["flow"] = "price_material_other"
+            await q.message.reply_text("✍️ Materialni yozing (masalan: shpon, fanera, ...):")
             return
 
-        title = titles.get(svc, "*Xizmat*")
-        section_key = f"svc/{svc}"
+        context.user_data["material"] = mat
+        context.user_data["flow"] = "price_room"
+        await q.message.reply_text("📏 Xona (yoki mebel) o‘lchamini yozing (masalan: 3.2x4.1 yoki 12 m²):")
+        return
 
-        await q.message.edit_text(
-            f"{title}\n\nKerakli tugmani tanlang 👇",
-            reply_markup=section_actions_kb(section_key=section_key, back_to="back:main"),
-            parse_mode=ParseMode.MARKDOWN,
+
+# ================= TEXT HANDLER (flow) =================
+async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+
+    flow = context.user_data.get("flow")
+    text = (update.message.text or "").strip()
+    user = update.effective_user
+
+    if not flow:
+        return
+
+    # ---- REVIEW TEXT ----
+    if flow == "review_text":
+        msg = (
+            "⭐ *Yangi fikr*\n\n"
+            f"👤 *Kimdan:* {user.full_name}\n"
+            f"🆔 *User ID:* `{user.id}`\n"
+            f"🕒 *Vaqt:* {now_str()}\n\n"
+            f"💬 *Fikr:*\n{text}"
+        )
+        await send_to_admins(context.application, msg)
+        clear_flow(context)
+        await update.message.reply_text("✅ Rahmat! Fikringiz qabul qilindi.", reply_markup=ReplyKeyboardRemove())
+        return
+
+    # ---- MATERIAL OTHER ----
+    if flow == "price_material_other":
+        context.user_data["material"] = text
+        context.user_data["flow"] = "price_room"
+        await update.message.reply_text("📏 Xona (yoki mebel) o‘lchamini yozing (masalan: 3.2x4.1 yoki 12 m²):")
+        return
+
+    # ---- ROOM SIZE ----
+    if flow == "price_room":
+        context.user_data["room_size"] = text
+        context.user_data["flow"] = "price_address"
+        await update.message.reply_text("📍 Manzilingizni yozing (tuman/shahar + mo‘ljal):")
+        return
+
+    # ---- ADDRESS ----
+    if flow == "price_address":
+        context.user_data["address"] = text
+        context.user_data["flow"] = "price_phone"
+        await update.message.reply_text(
+            "☎️ Telefon raqamingizni 1 bosishda yuboring 👇",
+            reply_markup=phone_request_kb(),
         )
         return
 
-    # --- MEBEL ICHKI ---
-    if data.startswith("mebel:"):
-        key = data.split(":", 1)[1]
-        name_map = {
-            "oshxona": "🍽 *Oshxona mebellari*",
-            "holl": "🪑 *Holl mebellari*",
-            "bolalar": "🧸 *Bolalar yotoqxonasi*",
-            "shkaf": "🚪 *Shkaf-kupe*",
-            "ofis": "🏢 *Ofis mebellari*",
-        }
-        title = name_map.get(key, "🪑 *Mebel bo‘limi*")
-        section_key = f"mebel/{key}"
 
-        await q.message.edit_text(
-            f"{title}\n\nKerakli tugmani tanlang 👇",
-            reply_markup=section_actions_kb(section_key=section_key, back_to="back:mebel"),
-            parse_mode=ParseMode.MARKDOWN,
+# ================= CONTACT HANDLER =================
+async def on_contact(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not update.message.contact:
+        return
+
+    contact = update.message.contact
+    user = update.effective_user
+    phone = contact.phone_number
+
+    flow = context.user_data.get("flow")
+
+    # ---- CONTACT BUTTON FLOW ----
+    if flow == "contact_phone":
+        msg = (
+            "☎️ *Yangi aloqa so‘rovi*\n\n"
+            f"👤 *Ism:* {user.full_name}\n"
+            f"🆔 *User ID:* `{user.id}`\n"
+            f"📞 *Telefon:* `{phone}`\n"
+            f"🧾 *Username:* @{user.username if user.username else 'yo‘q'}\n"
+            f"🕒 *Vaqt:* {now_str()}"
         )
+        await send_to_admins(context.application, msg)
+        clear_flow(context)
+        await update.message.reply_text("✅ Rahmat! Tez orada siz bilan bog‘lanamiz.", reply_markup=ReplyKeyboardRemove())
         return
 
-    # --- ALOQA ---
-    if data == "contact":
-        phones_text = "\n".join([f"📞 {p}" for p in PHONES])
+    # ---- PRICE FLOW (final step) ----
+    if flow == "price_phone":
+        svc_key = context.user_data.get("svc_key", "unknown")
+        material = context.user_data.get("material", "yo‘q")
+        room_size = context.user_data.get("room_size", "yo‘q")
+        address = context.user_data.get("address", "yo‘q")
 
-        await q.message.edit_text(
-            "📞 *Biz bilan bog‘lanish*\n\n"
-            f"*Telefon:*\n{phones_text}\n\n"
-            f"*Telegram:* {TG_USERNAME}\n"
-            f"*Instagram:* {IG_USERNAME}\n\n"
-            "📲 Telefon raqamingizni ulashish uchun tugmani bosing:",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=InlineKeyboardMarkup(
-                [
-                    [InlineKeyboardButton("📲 Telefon raqamni yuborish", callback_data="share_phone")],
-                    [InlineKeyboardButton("⬅️ Orqaga", callback_data="back:main")],
-                ]
-            ),
+        msg = (
+            "💰 *Narx so‘rash (to‘liq buyurtma)*\n\n"
+            f"🛠 *Xizmat:* {svc_title(svc_key)}\n"
+            f"📦 *Material:* `{material}`\n"
+            f"📏 *O‘lcham:* `{room_size}`\n"
+            f"📍 *Manzil:* {address}\n\n"
+            f"👤 *Mijoz:* {user.full_name}\n"
+            f"🆔 *User ID:* `{user.id}`\n"
+            f"📞 *Telefon:* `{phone}`\n"
+            f"🧾 *Username:* @{user.username if user.username else 'yo‘q'}\n"
+            f"🕒 *Vaqt:* {now_str()}"
         )
-        return
 
-    if data == "share_phone":
-        kb = ReplyKeyboardMarkup(
-            [[KeyboardButton("📲 Telefonimni yuborish", request_contact=True)]],
-            resize_keyboard=True,
-            one_time_keyboard=True,
-        )
-        await q.message.reply_text("📲 Telefon raqamingizni yuborish uchun tugmani bosing:", reply_markup=kb)
-        return
-
-    # --- FIKRLAR ---
-    if data == "reviews":
-        context.user_data["waiting"] = "review"
-        await q.message.reply_text("⭐ Fikr-mulohazangizni yozib yuboring (1 ta xabar bilan):", reply_markup=ReplyKeyboardRemove())
-        return
-
-    # --- NARX SO‘RASH ---
-    if data.startswith("ask:"):
-        section_key = data.split(":", 1)[1]
-
-        # sarlavha
-        title = section_key
-        if section_key.startswith("mebel/"):
-            k = section_key.split("/", 1)[1]
-            title = {
-                "oshxona": "Oshxona mebellari",
-                "holl": "Holl mebellari",
-                "bolalar": "Bolalar yotoqxonasi",
-                "shkaf": "Shkaf-kupe",
-                "ofis": "Ofis mebellari",
-            }.get(k, "Mebel bo‘limi")
-        elif section_key.startswith("svc/"):
-            k = section_key.split("/", 1)[1]
-            title = {
-                "konstruktor": "Konstruktlash xizmati",
-                "boyash": "Bo‘yash xizmati",
-                "eshik": "Eshiklar xizmati",
-                "ustalar": "Ustalar xizmati",
-            }.get(k, "Xizmat")
-
-        context.user_data["waiting"] = "order"
-        context.user_data["order_section_key"] = section_key
-        context.user_data["order_section_title"] = title
-
-        await q.message.reply_text(
-            f"🧾 *Narx so‘rash — {title}*\n\n"
-            "Iltimos, 1 ta xabar bilan yozing:\n"
-            "1) Ismingiz\n"
-            "2) Telefon raqamingiz\n"
-            "3) Buyurtma (o‘lcham, model, rang, manzil)\n\n"
-            "✅ Xabaringiz adminlarga boradi.",
-            parse_mode=ParseMode.MARKDOWN,
+        await send_to_admins(context.application, msg)
+        clear_flow(context)
+        await update.message.reply_text(
+            "✅ So‘rovingiz yuborildi! Tez orada siz bilan bog‘lanamiz.",
             reply_markup=ReplyKeyboardRemove(),
         )
         return
 
-    # --- PORTFOLIO ---
-    if data.startswith("pf:"):
-        section_key = data.split(":", 1)[1]
-        if section_key.startswith("mebel/"):
-            k = section_key.split("/", 1)[1]
-            await q.message.reply_text("🖼 Ish namunalari yuborilmoqda...")
-            await send_portfolio(update, context, k)
-            return
-
-        await q.message.reply_text("⚠️ Hozircha bu bo‘lim uchun rasmlar qo‘shilmagan.")
-        return
+    # Agar flow boshqa bo'lsa ham keyboardni yopamiz
+    await update.message.reply_text("✅ Qabul qilindi.", reply_markup=ReplyKeyboardRemove())
 
 
-# =============== APP BUILD (Render app.py shuni import qiladi) ===============
+# ================= BUILD APP (Render app.py shu yerda ishlatadi) =================
 def build_app() -> Application:
     if not TOKEN:
         raise RuntimeError("TOKEN yo‘q (.env yoki Render env ga qo‘ying)")
 
     app = ApplicationBuilder().token(TOKEN).build()
-
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CallbackQueryHandler(on_button))
     app.add_handler(MessageHandler(filters.CONTACT, on_contact))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
-
     return app
 
 
-def main():
+# ================= LOCAL RUN (polling) =================
+def main() -> None:
     app = build_app()
-    print("🤖 BOT ISHLAYAPTI (POLLING)...")
-    print("ADMIN_CHAT_IDS =", ADMIN_CHAT_IDS)
-   
+    print("✅ Bot ishga tushdi (polling)...")
+    app.run_polling(close_loop=False)
+
+
+if __name__ == "__main__":
+    main()
