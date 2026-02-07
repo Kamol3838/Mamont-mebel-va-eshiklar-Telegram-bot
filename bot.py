@@ -139,14 +139,13 @@ def clear_flow(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 # ================= COMMANDS =================
-async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    clear_flow(context)
-    if update.message:
-        await update.message.reply_text(
-            f"*{BRAND_TITLE}*\n\nXizmat turini tanlang 👇",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=main_menu_kb(),
-        )
+async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        f"{BRAND_TITLE}\n\nXizmat turini tanlang 👇",
+        reply_markup=main_menu_kb(),
+        parse_mode=ParseMode.MARKDOWN
+    )
+
 
 
 # ================= CALLBACKS =================
