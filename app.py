@@ -1,67 +1,52 @@
 import os
-from dotenv import load_dotenv
-
 from fastapi import FastAPI, Request
 from telegram import Update
 from telegram.ext import Application
+from dotenv import load_dotenv
 
-# =====================
-# ENV
-# =====================
+from bot import build_app   # MUHIM
+
 load_dotenv()
 
 TOKEN = os.getenv("TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
 if not TOKEN:
-    raise RuntimeError("❌ TOKEN yo‘q (.env yoki Render env ga qo‘ying)")
+    raise RuntimeError("TOKEN yo‘q")
 if not WEBHOOK_URL:
-    raise RuntimeError("❌ WEBHOOK_URL yo‘q (.env yoki Render env ga qo‘ying)")
+    raise RuntimeError("WEBHOOK_URL yo‘q")
 
-# =====================
-# FASTAPI
-# =====================
 app = FastAPI()
 tg_app: Application | None = None
 
 
-# =====================
-# STARTUP
-# =====================
 @app.on_event("startup")
 async def on_startup():
     global tg_app
+    tg_app = build_app()
 
-    tg_app = Application.builder().token(TOKEN).build()
     await tg_app.initialize()
+    await tg_app.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
+    await tg_app.start()
 
-    webhook_full = WEBHOOK_URL.rstrip("/") + "/webhook"
-
-    # Telegram faqat HTTPS webhook qabul qiladi
-    if webhook_full.startswith("https://"):
-        await tg_app.bot.set_webhook(webhook_full)
-        print(f"✅ Webhook o‘rnatildi: {webhook_full}")
-    else:
-        print(f"ℹ️ LOCAL MODE: webhook o‘rnatilmadi (https emas): {webhook_full}")
+    print("✅ WEBHOOK ISHLADI:", f"{WEBHOOK_URL}/webhook")
 
 
-# =====================
-# TELEGRAM WEBHOOK
-# =====================
+@app.on_event("shutdown")
+async def on_shutdown():
+    if tg_app:
+        await tg_app.stop()
+        await tg_app.shutdown()
+
+
 @app.post("/webhook")
-async def telegram_webhook(request: Request):
-    if tg_app is None:
-        return {"ok": False, "error": "Bot hali init bo‘lmagan"}
-
-    data = await request.json()
+async def webhook(req: Request):
+    data = await req.json()
     update = Update.de_json(data, tg_app.bot)
     await tg_app.process_update(update)
     return {"ok": True}
 
 
-# =====================
-# ROOT (Health check)
-# =====================
 @app.get("/")
-async def root():
-    return {"status": "running"}
+def root():
+    return {"status": "ok"}
