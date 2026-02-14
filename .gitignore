@@ -1,5 +1,6 @@
 # virtual environment
 venv/
+.venv/
 
 # environment variables
 .env
@@ -7,6 +8,12 @@ venv/
 # python cache
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# local files
+samples.json
 
 # editor settings
 .vscode/
+.idea/
